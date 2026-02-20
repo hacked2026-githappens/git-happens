@@ -152,14 +152,13 @@ def analyze_with_ollama(words: list[dict]) -> dict:
         response = ollama.chat(
             model=OLLAMA_MODEL,
             messages=messages,
-            format="json",
             think=False,
         )
         raw = response["message"]["content"]
         data = _strip_and_parse(raw)
         if data and _validate(data):
             return data
-        logger.warning("LLM returned invalid/incomplete JSON on first attempt, retrying...")
+        logger.warning("LLM returned invalid/incomplete JSON on first attempt, retrying...\nRaw response snippet: %s", raw[:300])
     except Exception as exc:
         logger.error("Ollama first attempt failed: %s", exc)
 
@@ -178,7 +177,6 @@ def analyze_with_ollama(words: list[dict]) -> dict:
         response = ollama.chat(
             model=OLLAMA_MODEL,
             messages=retry_messages,
-            format="json",
             think=False,
         )
         raw = response["message"]["content"]
