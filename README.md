@@ -9,11 +9,11 @@ SpeakSmart is a hackathon app that helps people become better public speakers. U
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React Native + Expo SDK 54, Expo Router, NativeWind (Tailwind) |
-| Backend | Express.js (Node.js) |
-| Transcription | OpenAI Whisper API (`whisper-1`) with word-level timestamps |
-| Analysis | Anthropic Claude (`claude-sonnet-4-6`) |
+| Backend | Python FastAPI + Uvicorn |
+| Transcription | Local Whisper (`faster-whisper`) with word-level timestamps — free |
+| Analysis | Local LLM via Ollama (`qwen2.5:7b`) — free, no API key |
 | Storage + DB | Supabase Storage (`videos` bucket) + Supabase Postgres (`jobs` table) |
-| Audio extraction | fluent-ffmpeg |
+| Audio extraction | ffmpeg-python |
 
 ---
 
@@ -22,8 +22,7 @@ SpeakSmart is a hackathon app that helps people become better public speakers. U
 ```
 git-happens/
 ├── presentation-coach-app/   # React Native Expo frontend
-├── api-server/               # Express.js backend
-├── backend/                  # Legacy Python FastAPI — not used
+├── backend/                  # Python FastAPI backend
 ├── AGENTS.md                 # Context for AI agents and teammates
 └── README.md
 ```
@@ -34,18 +33,19 @@ git-happens/
 
 ### 1. Environment variables
 
-Copy the example file and fill in your credentials:
+Copy the example file — only Supabase credentials are required:
 
 ```bash
-cp .env.example api-server/.env
+cp .env.example backend/.env
+# Fill in SUPABASE_URL and SUPABASE_SERVICE_KEY only
 ```
 
 Also create `presentation-coach-app/.env.local`:
 ```
-EXPO_PUBLIC_API_URL=http://localhost:3001
+EXPO_PUBLIC_API_URL=http://localhost:8000
 ```
 
-See `.env.example` at the repo root for all required variables.
+No OpenAI or Anthropic API keys needed — Whisper and the LLM run locally for free.
 
 ### 2. Supabase
 
@@ -54,16 +54,23 @@ In your Supabase project:
 - Create a **Storage bucket** named `videos` (private)
 - Create a **table** named `jobs` — see [AGENTS.md](./AGENTS.md#supabase-schema) for the full schema
 
-### 3. Run the backend
+### 3. Install Ollama (one-time)
 
 ```bash
-cd api-server
-npm install
-node index.js
-# Server listens on PORT (default 3001)
+# Download from https://ollama.com (or: winget install Ollama.Ollama)
+ollama pull qwen2.5:7b   # ~4.7GB, best JSON output — or: qwen2.5:3b (~2GB) if tight on space
 ```
 
-### 4. Run the frontend
+### 4. Run the backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+# API available at http://localhost:8000
+```
+
+### 5. Run the frontend
 
 ```bash
 cd presentation-coach-app
@@ -80,7 +87,7 @@ npx expo start --android  # Android emulator
 1. User uploads a video file on the home screen
 2. Backend receives the video, stores it in Supabase, and returns a `jobId` immediately
 3. A background job extracts audio, transcribes it with Whisper, and analyzes it with Claude
-4. Frontend polls `/api/results/:jobId` every 2 seconds until the job is done
+4. Frontend polls `/api/results/{jobId}` every 2 seconds until the job is done
 5. Results screen shows an annotated video player with a marker timeline, coaching popups, and a full dashboard
 
 ---

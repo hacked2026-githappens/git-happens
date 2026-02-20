@@ -10,12 +10,13 @@ This file is for AI agents and teammates jumping into any part of the codebase. 
 
 Flow:
 1. User picks a video file on the home screen
-2. Frontend POSTs it to the Express backend → gets back a `jobId`
-3. Backend pipeline (async, fire-and-forget):
-   - Extracts audio with ffmpeg
-   - Transcribes with OpenAI Whisper (word-level timestamps)
-   - Detects filler words, pace issues, and repetition from Whisper output
-   - Sends indexed transcript to Anthropic Claude for deep analysis
+2. Frontend POSTs it to the Python FastAPI backend → gets back a `jobId`
+3. Backend pipeline (async, FastAPI BackgroundTasks):
+   - Uploads video to Supabase Storage
+   - Downloads and extracts audio with ffmpeg (mono 16kHz MP3)
+   - Transcribes with local Whisper model (`faster-whisper`, word-level timestamps, 4-8x faster than openai-whisper, free)
+   - Detects filler words, pace issues, and repetition from Whisper word array
+   - Sends indexed transcript to local LLM via Ollama (free, no API key)
    - Merges all feedback events, stores results in Supabase
 4. Frontend polls until done, then shows: annotated video player + coaching dashboard
 
@@ -27,7 +28,7 @@ Flow:
 git-happens/
 ├── presentation-coach-app/     # React Native Expo frontend (SDK 54)
 │   ├── app/                    # Expo Router screens
-│   │   ├── _layout.tsx         # Root layout — wraps AccessibilityProvider
+│   │   ├── _layout.tsx         # Root layout — wraps AccessibilityProvider, imports global.css
 │   │   ├── index.tsx           # Upload screen (/)
 │   │   ├── analyzing/
 │   │   │   └── [jobId].tsx     # Polling/progress screen
@@ -47,17 +48,18 @@ git-happens/
 │   ├── constants/
 │   │   ├── colors.ts           # Normal + high-contrast palettes
 │   │   └── theme.ts            # Existing theme (light/dark)
+│   ├── __mocks__/
+│   │   └── results.json        # Sample results object for local development
 │   ├── global.css              # NativeWind Tailwind entry
 │   ├── tailwind.config.js
 │   └── babel.config.js
 │
-├── api-server/                  # Express.js backend
-│   ├── index.js                 # Routes: POST /api/analyze, GET /api/results/:jobId
-│   ├── jobRunner.js             # Async pipeline: ffmpeg → Whisper → Claude → Supabase
-│   ├── package.json
+├── backend/                     # Python FastAPI backend (extended from existing scaffold)
+│   ├── main.py                  # FastAPI app + all routes (existing + new /api/analyze, /api/results)
+│   ├── job_runner.py            # New: async pipeline (ffmpeg → Whisper → filler/pace/rep → Claude → Supabase)
+│   ├── requirements.txt         # Python dependencies
 │   └── .env                    # Server-side secrets (never commit)
 │
-├── backend/                     # IGNORE — legacy Python FastAPI, not used
 ├── .env.example                 # Documents all required env vars
 ├── README.md
 └── AGENTS.md                   # This file
@@ -88,15 +90,17 @@ create table jobs (
 
 ## API Contract
 
+Backend runs on port **8000** (`uvicorn main:app --port 8000`).
+
 ### `POST /api/analyze`
 - Body: `multipart/form-data` with field `video` (video file)
-- Response: `{ jobId: string }`
-- Side effect: uploads video to Supabase Storage, inserts job row, fires async pipeline
+- Response: `{ "jobId": string }`
+- Side effect: uploads video to Supabase Storage, inserts job row, fires async background pipeline
 
-### `GET /api/results/:jobId`
-- Response (pending/processing): `{ status: "pending" | "processing" }`
-- Response (done): `{ status: "done", results: ResultsObject, videoUrl: string }`
-- Response (error): `{ status: "error", error_message: string }`
+### `GET /api/results/{job_id}`
+- Response (pending/processing): `{ "status": "pending" | "processing" }`
+- Response (done): `{ "status": "done", "results": ResultsObject, "videoUrl": string }`
+- Response (error): `{ "status": "error", "error_message": string }`
 - `videoUrl` is a Supabase signed URL expiring in 1 hour
 
 ### Results Object Shape
@@ -130,6 +134,22 @@ create table jobs (
 
 ---
 
+## Existing Code to Reuse (`backend/main.py`)
+
+These functions are already implemented and should be kept/reused as-is:
+- `FILLER_WORDS` set — extend with `'right'`, `'kind of'`, `'sort of'`
+- `tokenize(text)` — word tokenization
+- `count_stutter_events(words)` — consecutive repeated words
+- `classify_pace(wpm)` — slow/good/fast classification
+- `ensure_supported_media(upload)` — validates audio/video content type
+- `save_upload_to_temp(upload)` — saves UploadFile to `/tmp`, returns `Path`
+- `get_whisper_model()` with `@lru_cache` — rewrite for `faster-whisper` (`WhisperModel(size, device="cpu", compute_type="int8")`)
+- FastAPI app instance, CORS middleware setup
+
+The old `POST /analyze` endpoint (synchronous, no Supabase) can be kept for backward compatibility or removed.
+
+---
+
 ## Frontend Route Map
 
 | Route | File | Purpose |
@@ -159,7 +179,7 @@ NativeWind (Tailwind classes via `className` prop). Avoid `StyleSheet.create` ex
 
 ### Environment variables
 - `EXPO_PUBLIC_*` prefix = safe for frontend bundle (Expo reads from `.env.local`)
-- All other secrets (Supabase service key, OpenAI, Anthropic) = `api-server/.env` only, never in frontend
+- All other secrets (Supabase service key, OpenAI, Anthropic) = `backend/.env` only, never in frontend
 
 ### FormData on native vs web
 ```ts
@@ -174,18 +194,52 @@ Use `Platform.OS === 'web'` to branch.
 
 ## Environment Variables
 
-### `api-server/.env`
+No paid API keys required. Both Whisper and the LLM run locally for free.
+
+### `backend/.env`
 ```
 SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...        # service_role key, NOT anon key
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-PORT=3001
+SUPABASE_SERVICE_KEY=eyJ...        # service_role key, NOT anon key — only external service needed
+CORS_ALLOW_ORIGINS=http://localhost:8081
+PORT=8000
+WHISPER_MODEL=base                 # tiny | base | small | medium
+OLLAMA_MODEL=qwen2.5:7b            # must be pulled first: ollama pull qwen2.5:7b
 ```
 
 ### `presentation-coach-app/.env.local`
 ```
-EXPO_PUBLIC_API_URL=http://localhost:3001
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+---
+
+## Python Dependencies (`backend/requirements.txt`)
+
+```
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+faster-whisper      # Local Whisper — 4-8x faster than openai-whisper, same accuracy, free
+ollama              # Local LLM client — free, no API key (requires Ollama app installed)
+supabase            # Supabase Python client
+ffmpeg-python       # ffmpeg wrapper for audio extraction
+```
+
+Note: `openai-whisper` has been replaced by `faster-whisper`. `opencv-python` and `mediapipe` removed.
+Do NOT add `openai` or `anthropic` — no paid API calls.
+
+**faster-whisper API is different from openai-whisper:**
+- Returns a generator (not a list) — must consume in the same thread
+- Word objects are NamedTuples: `w.word`, `w.start`, `w.end` (not dict keys)
+
+**One-time setup per developer:**
+```bash
+# 1. Install Ollama: https://ollama.com  (or: winget install Ollama.Ollama)
+# 2. Pull a model (Ollama starts automatically in background):
+ollama pull qwen2.5:7b    # ~4.7GB — best JSON reliability (recommended)
+# or if RAM/disk is tight:
+ollama pull qwen2.5:3b    # ~2GB — faster, slightly lower quality
 ```
 
 ---
@@ -195,8 +249,8 @@ EXPO_PUBLIC_API_URL=http://localhost:3001
 Work in this sequence — do not skip ahead:
 
 1. **Phase 0** — This file + README (done)
-2. **Phase 1** — Scaffold: `api-server/` skeleton, add Expo packages, NativeWind setup, delete `app/(tabs)/`
-3. **Phase 2** — Backend: `POST /api/analyze`, `GET /api/results/:jobId`, `jobRunner.js` full pipeline
+2. **Phase 1** — Scaffold: update `backend/requirements.txt`, add Expo packages, NativeWind setup, delete `app/(tabs)/`
+3. **Phase 2** — Backend: new `POST /api/analyze` + `GET /api/results/{job_id}` routes in `main.py`, full `job_runner.py` pipeline
 4. **Phase 3** — Upload screen (`app/index.tsx`) + VideoUploader components + `lib/api.ts`
 5. **Phase 4** — Analyzing screen with polling + animated spinner
 6. **Phase 5** — AnnotatedPlayer (player + TimelineBar + FeedbackPopup)
@@ -209,10 +263,13 @@ Work in this sequence — do not skip ahead:
 
 ```bash
 # Terminal 1 — backend
-cd api-server && node index.js
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
 
 # Terminal 2 — frontend
-cd presentation-coach-app && npx expo start --web
+cd presentation-coach-app
+npx expo start --web
 ```
 
-Verify: `GET http://localhost:3001/health` → `{ "status": "ok" }`
+Verify: `GET http://localhost:8000/health` → `{ "status": "ok" }`
