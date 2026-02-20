@@ -11,7 +11,8 @@ SpeakSmart is a hackathon app that helps people become better public speakers. U
 | Frontend | React Native + Expo SDK 54, Expo Router, NativeWind (Tailwind) |
 | Backend | Python FastAPI + Uvicorn |
 | Transcription | Local Whisper (`faster-whisper`) with word-level timestamps — free |
-| Analysis | Local LLM via Ollama (`qwen2.5:7b`) — free, no API key |
+| Speech Analysis | Local LLM via Ollama (`qwen2.5:7b`) — free, no API key |
+| Non-verbal Analysis | MediaPipe Holistic (hand landmark tracking) + OpenCV (frame extraction) |
 | Storage + DB | Supabase Storage (`videos` bucket) + Supabase Postgres (`jobs` table) |
 | Audio extraction | ffmpeg-python |
 
@@ -86,7 +87,7 @@ npx expo start --android  # Android emulator
 
 1. User uploads a video file on the home screen
 2. Backend receives the video, stores it in Supabase, and returns a `jobId` immediately
-3. A background job extracts audio, transcribes it with Whisper, and analyzes it with Claude
+3. A background job extracts audio, transcribes it with Whisper, and simultaneously analyzes hand movements via MediaPipe — then runs LLM coaching analysis via Ollama
 4. Frontend polls `/api/results/{jobId}` every 2 seconds until the job is done
 5. Results screen shows an annotated video player with a marker timeline, coaching popups, and a full dashboard
 
@@ -97,7 +98,8 @@ npx expo start --android  # Android emulator
 - Annotated video player with clickable timeline markers
 - Auto-popups as video plays at moments of flagged speech
 - Filler word detection, pace analysis, repetition detection (via Whisper)
-- Scores, strengths, improvements, and structure analysis (via Claude)
+- Scores, strengths, improvements, and structure analysis (via Ollama)
+- Hand movement / gesture energy score with coaching tips (via MediaPipe)
 - Transcript with color-coded word chips — tap any word to seek the video
 - Radar chart of 5 coaching dimensions
 - High-contrast accessibility mode + screen reader support

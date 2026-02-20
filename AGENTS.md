@@ -13,11 +13,11 @@ Flow:
 2. Frontend POSTs it to the Python FastAPI backend → gets back a `jobId`
 3. Backend pipeline (async, FastAPI BackgroundTasks):
    - Uploads video to Supabase Storage
-   - Downloads and extracts audio with ffmpeg (mono 16kHz MP3)
-   - Transcribes with local Whisper model (`faster-whisper`, word-level timestamps, 4-8x faster than openai-whisper, free)
+   - Downloads video, extracts audio with ffmpeg (mono 16kHz MP3)
+   - **In parallel:** transcribes audio with `faster-whisper` (word-level timestamps) AND analyzes video frames with MediaPipe Holistic (hand landmark tracking → gesture energy score)
    - Detects filler words, pace issues, and repetition from Whisper word array
-   - Sends indexed transcript to local LLM via Ollama (free, no API key)
-   - Merges all feedback events, stores results in Supabase
+   - Sends indexed transcript to local LLM via Ollama (free, no API key) for coaching analysis
+   - Merges all feedback events + non-verbal results, stores in Supabase
 4. Frontend polls until done, then shows: annotated video player + coaching dashboard
 
 ---
@@ -56,7 +56,7 @@ git-happens/
 │
 ├── backend/                     # Python FastAPI backend (extended from existing scaffold)
 │   ├── main.py                  # FastAPI app + all routes (existing + new /api/analyze, /api/results)
-│   ├── job_runner.py            # New: async pipeline (ffmpeg → Whisper → filler/pace/rep → Claude → Supabase)
+│   ├── job_runner.py            # New: async pipeline (ffmpeg → faster-whisper + MediaPipe in parallel → filler/pace/rep → Ollama → Supabase)
 │   ├── requirements.txt         # Python dependencies
 │   └── .env                    # Server-side secrets (never commit)
 │
@@ -128,6 +128,12 @@ Backend runs on port **8000** (`uvicorn main:app --port 8000`).
   strengths: string[];
   improvements: Array<{ title: string; detail: string; actionable_tip: string }>;
   structure: { has_clear_intro: boolean; has_clear_conclusion: boolean; body_feedback: string };
+  non_verbal: {
+    gesture_energy: number;        // 0-10 scale
+    activity_level: "low" | "moderate" | "high" | "unknown";
+    avg_velocity: number;          // raw landmark velocity for debugging
+    samples: number;               // number of frames analyzed
+  };
   stats: { total_filler_words: number; avg_wpm: number; total_words: number; flagged_sentences: number };
 }
 ```
@@ -179,7 +185,7 @@ NativeWind (Tailwind classes via `className` prop). Avoid `StyleSheet.create` ex
 
 ### Environment variables
 - `EXPO_PUBLIC_*` prefix = safe for frontend bundle (Expo reads from `.env.local`)
-- All other secrets (Supabase service key, OpenAI, Anthropic) = `backend/.env` only, never in frontend
+- All other secrets (Supabase service key) = `backend/.env` only, never in frontend
 
 ### FormData on native vs web
 ```ts
@@ -224,9 +230,11 @@ faster-whisper      # Local Whisper — 4-8x faster than openai-whisper, same ac
 ollama              # Local LLM client — free, no API key (requires Ollama app installed)
 supabase            # Supabase Python client
 ffmpeg-python       # ffmpeg wrapper for audio extraction
+opencv-python       # Frame extraction for non-verbal analysis
+mediapipe           # Hand + pose landmark detection (Holistic solution)
 ```
 
-Note: `openai-whisper` has been replaced by `faster-whisper`. `opencv-python` and `mediapipe` removed.
+Note: `openai-whisper` has been replaced by `faster-whisper`. `opencv-python` and `mediapipe` are used for hand movement analysis.
 Do NOT add `openai` or `anthropic` — no paid API calls.
 
 **faster-whisper API is different from openai-whisper:**
