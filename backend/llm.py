@@ -134,7 +134,74 @@ def _build_context_block(analysis_context: dict) -> str:
         f"avg_velocity={nv.get('avg_velocity', 'unknown')}, "
         f"samples={nv.get('samples', 0)}"
     )
+    lines.append(
+        f"eye_contact_proxy: score={nv.get('eye_contact_score', 'unknown')}, "
+        f"level={nv.get('eye_contact_level', 'unknown')}"
+    )
+    lines.append(
+        f"posture_proxy: score={nv.get('posture_score', 'unknown')}, "
+        f"level={nv.get('posture_level', 'unknown')}"
+    )
     return "\n".join(lines)
+
+
+NON_VERBAL_TERMS_PATTERN = re.compile(
+    r"\b(gesture|gestures|hand|hands|body language|non[- ]verbal|posture|physical engagement)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _remove_non_verbal_mentions(text: str) -> str:
+    """Remove explicit non-verbal references from a generated text field."""
+    if not text:
+        return text
+    cleaned = NON_VERBAL_TERMS_PATTERN.sub("", text)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,.-")
+    if not cleaned:
+        return "Focus on verbal clarity and structure."
+    return cleaned
+
+
+def _enforce_unknown_non_verbal_policy(data: dict, analysis_context: dict | None) -> dict:
+    """Deterministically enforce no non-verbal claims when activity_level is unknown."""
+    nv = (analysis_context or {}).get("non_verbal", {})
+    if str(nv.get("activity_level", "")).lower() != "unknown":
+        return data
+
+    strengths = data.get("strengths") or []
+    data["strengths"] = [_remove_non_verbal_mentions(str(s)) for s in strengths]
+
+    improvements = data.get("improvements") or []
+    sanitized_improvements: list[dict] = []
+    for imp in improvements:
+        if not isinstance(imp, dict):
+            continue
+        sanitized_improvements.append(
+            {
+                "title": _remove_non_verbal_mentions(str(imp.get("title", ""))),
+                "detail": _remove_non_verbal_mentions(str(imp.get("detail", ""))),
+                "actionable_tip": _remove_non_verbal_mentions(str(imp.get("actionable_tip", ""))),
+            }
+        )
+    data["improvements"] = sanitized_improvements
+
+    structure = data.get("structure") or {}
+    if isinstance(structure, dict):
+        structure["body_feedback"] = _remove_non_verbal_mentions(str(structure.get("body_feedback", "")))
+        data["structure"] = structure
+
+    events = data.get("feedbackEvents") or []
+    sanitized_events: list[dict] = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        ev_title = str(ev.get("title", ""))
+        ev_message = str(ev.get("message", ""))
+        if NON_VERBAL_TERMS_PATTERN.search(ev_title) or NON_VERBAL_TERMS_PATTERN.search(ev_message):
+            continue
+        sanitized_events.append(ev)
+    data["feedbackEvents"] = sanitized_events
+    return data
 
 
 def analyze_with_llm(words: list[dict], analysis_context: dict | None = None) -> dict:
@@ -191,7 +258,7 @@ def analyze_with_llm(words: list[dict], analysis_context: dict | None = None) ->
         raw = response.choices[0].message.content or ""
         data = _strip_and_parse(raw)
         if data and _validate(data):
-            return data
+            return _enforce_unknown_non_verbal_policy(data, analysis_context)
         logger.warning("LLM response missing keys on first attempt, retrying...\nRaw snippet: %s", raw[:300])
     except Exception as exc:
         logger.error("Groq first attempt failed: %s", exc)
@@ -218,7 +285,7 @@ def analyze_with_llm(words: list[dict], analysis_context: dict | None = None) ->
         raw = response.choices[0].message.content or ""
         data = _strip_and_parse(raw)
         if data and _validate(data):
-            return data
+            return _enforce_unknown_non_verbal_policy(data, analysis_context)
         logger.error("LLM returned invalid JSON on retry, falling back to safe defaults")
     except Exception as exc:
         logger.error("Groq retry failed: %s", exc)
