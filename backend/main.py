@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from llm import analyze_with_ollama, map_llm_events
+from non_verbal.vision import analyze_nonverbal
 
 logger = logging.getLogger(__name__)
 
@@ -157,10 +158,10 @@ def build_speech_metrics(transcript: str, duration_seconds: float) -> dict[str, 
         "filler_words": filler_counts,
         "stutter_events": stutter_events,
         "non_verbal": {
-            "status": "not_analyzed_yet",
-            "eye_contact": "unknown",
-            "posture": "unknown",
-            "gesture_energy": "unknown",
+            "gesture_energy": 0.0,
+            "activity_level": "unknown",
+            "avg_velocity": 0.0,
+            "samples": 0,
         },
     }
 
@@ -377,6 +378,9 @@ async def analyze_session(
             notes.extend(whisper_notes)
 
         metrics = build_speech_metrics(transcript, duration_seconds)
+        nv_result = analyze_nonverbal(str(temp_path))
+        metrics["non_verbal"] = nv_result["non_verbal"]
+
         markers = build_timeline_markers(metrics)
         summary_feedback = build_summary_feedback(metrics)
 
