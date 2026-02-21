@@ -1,98 +1,277 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Platform, StyleSheet, TouchableOpacity } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
-import { HelloWave } from '@/components/hello-wave';
 import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+
+type Marker = {
+  time_sec: number;
+  label: string;
+  detail?: string;
+};
+
+type CoachResponse = {
+  summary: string;
+  bullets?: string[];
+  markers?: Marker[];
+  notes?: string[];
+  transcript?: string;
+};
+const BACKEND_URL =
+  Platform.select({
+    android: 'http://10.0.2.2:8000',
+    ios: 'http://localhost:8000',
+    default: 'http://localhost:8000',
+  }) ?? 'http://localhost:8000';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const router = useRouter();
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const player = useVideoPlayer(videoUri ?? '', (p) => {
+    p.loop = false;
+  });
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<CoachResponse | null>(null);
+  const [videoName, setVideoName] = useState<string>('');
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+  const pickVideo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setVideoUri(asset.uri);
+      setVideoName(asset.fileName ?? asset.uri.split('/').pop() ?? 'selected-video');
+      setFeedback(null);
+    }
+  };
+
+  const analyze = async () => {
+    if (!videoUri) {
+      Alert.alert('Pick a video first.');
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const form = new FormData();
+
+      // ✅ Web needs Blob/File
+      if (Platform.OS === 'web') {
+        const resp = await fetch(videoUri);
+        const blob = await resp.blob();
+        form.append('file', blob, 'practice.mp4');
+      } else {
+        form.append('file', {
+          uri: videoUri,
+          name: 'practice.mp4',
+          type: 'video/mp4',
+        } as any);
+      }
+
+      // Optional but nice: send duration_seconds so backend doesn't warn
+      form.append('duration_seconds', '30');
+
+      const res = await fetch(`${BACKEND_URL}/analyze`, {
+        method: 'POST',
+        body: form,
+      });
+
+      // ✅ IMPORTANT: show error instead of hanging silently
+      if (!res.ok) {
+        const txt = await res.text();
+        Alert.alert('Backend error', `Status ${res.status}\n\n${txt}`);
+        return;
+      }
+
+      const api = await res.json();
+
+      const mapped: CoachResponse = {
+        summary: api.summary_feedback?.[0] ?? 'Feedback ready.',
+        bullets: api.summary_feedback ?? [],
+        markers: (api.markers ?? []).map((m: any) => ({
+          time_sec: m.second,
+          label: m.category,
+          detail: m.message,
+        })),
+        notes: api.notes ?? [],
+        transcript: api.transcript ?? '',
+      };
+
+      setFeedback(mapped);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openReplay = () => {
+    if (!videoUri || !feedback) return;
+
+    router.push({
+      pathname: '/replay',
+      params: {
+        videoUri,
+        summary: feedback.summary,
+      },
+    });
+  };
+
+return (
+  <ParallaxScrollView
+    headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+    headerImage={
+      <ThemedView style={styles.headerBox}>
+        <ThemedText type="title" style={styles.headerTitle}>
+          Presentation Coach
+        </ThemedText>
+        <ThemedText style={styles.headerSubtitle}>
+          Upload a clip → get timestamped AI feedback.
         </ThemedText>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+    }
+  >
+    <ThemedView style={styles.page}>
+      {/* Upload Card */}
+      <ThemedView style={styles.card}>
+        <ThemedText type="subtitle" style={{ marginBottom: 8 }}>
+          Upload
         </ThemedText>
+
+        {!!videoUri && (
+          <ThemedView style={{ gap: 10 }}>
+            <ThemedView style={styles.videoWrap}>
+              <VideoView
+                style={styles.video}
+                player={player}
+                allowsFullscreen
+                allowsPictureInPicture
+                nativeControls
+              />
+            </ThemedView>
+
+            <ThemedText type="defaultSemiBold" style={{ fontSize: 16 }} numberOfLines={2}>
+              {videoName}
+            </ThemedText>
+          </ThemedView>
+        )}
+
+        <TouchableOpacity style={styles.primaryButton} onPress={pickVideo}>
+          <ThemedText type="defaultSemiBold">
+            {videoUri ? 'Change Video' : 'Pick Video'}
+          </ThemedText>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.primaryButton, (!videoUri || busy) && styles.buttonDisabled]}
+          disabled={!videoUri || busy}
+          onPress={analyze}
+        >
+          <ThemedText type="defaultSemiBold">{busy ? 'Analyzing...' : 'Run Coach'}</ThemedText>
+        </TouchableOpacity>
       </ThemedView>
-    </ParallaxScrollView>
-  );
+
+      {/* Feedback Card */}
+      {feedback && (
+        <ThemedView style={styles.card}>
+          <ThemedText type="subtitle">Feedback</ThemedText>
+
+          <ThemedText style={{ marginTop: 8 }}>{feedback.summary}</ThemedText>
+
+          {feedback.bullets?.map((b, i) => (
+            <ThemedText key={i} style={{ marginTop: 6 }}>
+              • {b}
+            </ThemedText>
+          ))}
+
+          {!!feedback.transcript && (
+            <ThemedView style={{ marginTop: 12, gap: 6 }}>
+              <ThemedText type="defaultSemiBold">Transcript</ThemedText>
+              <ThemedText style={{ opacity: 0.9 }}>{feedback.transcript}</ThemedText>
+            </ThemedView>
+          )}
+
+          {!!feedback.notes?.length && (
+            <ThemedView style={{ marginTop: 12, gap: 4 }}>
+              <ThemedText type="defaultSemiBold">Debug Notes</ThemedText>
+              {feedback.notes.map((n, i) => (
+                <ThemedText key={i}>🛈 {n}</ThemedText>
+              ))}
+            </ThemedView>
+          )}
+          <TouchableOpacity style={[styles.primaryButton, { marginTop: 12 }]} onPress={openReplay}>
+            <ThemedText type="defaultSemiBold">Open Annotated Replay</ThemedText>
+          </TouchableOpacity>
+        </ThemedView>
+      )}
+    </ThemedView>
+  </ParallaxScrollView>
+);
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  headerBox: { padding: 18, gap: 6 },
+  headerTitle: { textAlign: 'center' },
+  headerSubtitle: { textAlign: 'center', opacity: 0.9 },
+  videoWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  video: {
+    width: '100%',
+    height: 240, // increase if you want bigger
+  },
+  // centers content on web + adds breathing room
+  page: {
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    maxWidth: 820,
+    width: '100%',
+    alignSelf: 'center',
+  },
+
+  card: {
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+
+  primaryButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: 'rgba(100,160,220,0.35)',
     alignItems: 'center',
-    gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+
+  buttonDisabled: { opacity: 0.5 },
+
+  fileRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+
+  fileName: {
+    flex: 1,
+    opacity: 0.9,
   },
 });
