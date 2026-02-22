@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from llm import analyze_with_llm, map_llm_events
+from llm import analyze_with_llm, generate_content_specific_plan, map_llm_events
 from non_verbal.vision import analyze_nonverbal
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,12 @@ async def run_analysis_job(
     """Background pipeline: transcribe + vision in parallel, then LLM, then store results."""
     # Import here to avoid circular import (job_runner imports from main, main imports job_runner)
     from main import (
+        analyze_audio_delivery_from_samples,
         build_speech_metrics,
         build_summary_feedback,
         build_timeline_markers,
         detect_media_duration_seconds,
+        extract_audio_samples_for_analysis,
         transcribe_with_whisper,
     )
 
@@ -36,14 +38,29 @@ async def run_analysis_job(
             detected, _ = await asyncio.to_thread(detect_media_duration_seconds, temp_path)
             duration_seconds = detected if detected is not None else 30.0
 
-        # Run transcription and non-verbal analysis in parallel
-        (transcript, words, _whisper_notes), nv_result = await asyncio.gather(
+        # Run transcription, non-verbal analysis, and audio extraction in parallel
+        (
+            (transcript, words, whisper_notes),
+            nv_result,
+            (audio_samples, audio_sample_rate, audio_extract_notes),
+        ) = await asyncio.gather(
             asyncio.to_thread(transcribe_with_whisper, temp_path),
             asyncio.to_thread(analyze_nonverbal, str(temp_path)),
+            asyncio.to_thread(extract_audio_samples_for_analysis, temp_path),
         )
 
         metrics = build_speech_metrics(transcript, duration_seconds)
+        audio_delivery, audio_dsp_notes = await asyncio.to_thread(
+            analyze_audio_delivery_from_samples,
+            audio_samples,
+            audio_sample_rate,
+            words,
+            duration_seconds,
+        )
+        audio_notes = [*audio_extract_notes, *audio_dsp_notes]
+        metrics["audio_delivery"] = audio_delivery
         metrics["non_verbal"] = nv_result["non_verbal"]
+        summary_feedback = build_summary_feedback(metrics)
 
         analysis_context = {
             "pace_label": metrics.get("pace_label"),
@@ -52,9 +69,25 @@ async def run_analysis_job(
             "non_verbal": metrics.get("non_verbal", {}),
         }
 
-        llm_result = await asyncio.to_thread(analyze_with_llm, words, analysis_context, preset)
+        # Run LLM coaching and content plan generation in parallel.
+        # Content plan uses transcript + summary_feedback (available now); it doesn't
+        # need the coaching improvements list, so we pass [] to enable parallelism.
+        llm_result, content_plan = await asyncio.gather(
+            asyncio.to_thread(analyze_with_llm, words, analysis_context, preset),
+            asyncio.to_thread(
+                generate_content_specific_plan,
+                transcript,
+                summary_feedback,
+                [],
+                preset,
+            ),
+        )
         llm_events = map_llm_events(llm_result.get("feedbackEvents", []), words)
         llm_result["feedbackEvents"] = llm_events
+
+        notes = [*whisper_notes, *audio_notes]
+        if not transcript:
+            notes.append("Transcript is empty. Speaking metrics may be limited.")
 
         results: dict[str, Any] = {
             # AGENTS.md spec keys
@@ -74,10 +107,12 @@ async def run_analysis_job(
             }),
             # Backward-compat keys so mapAnalyzePayload() + saveSession() in index.tsx work unchanged
             "transcript": transcript,
-            "summary_feedback": build_summary_feedback(metrics),
+            "summary_feedback": summary_feedback,
             "markers": [m.model_dump() for m in build_timeline_markers(metrics)],
             "llm_analysis": llm_result,
             "metrics": metrics,
+            "personalized_content_plan": content_plan,
+            "notes": notes,
         }
 
         supabase.table("jobs").update({"status": "done", "results": results}).eq("id", job_id).execute()

@@ -16,7 +16,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Coach', href: '/(tabs)', icon: 'mic-outline' },
   { label: 'History', href: '/(tabs)/history', icon: 'bar-chart-outline' },
-  { label: 'Practice', href: '/(tabs)/practice', icon: 'radio-outline' },
+  { label: 'Practice', href: '/(tabs)/drill', icon: 'radio-outline' },
   { label: 'Guide', href: '/(tabs)/explore', icon: 'book-outline' },
 ];
 
@@ -109,7 +109,9 @@ export default function TabsDashboardLayout() {
   }, [pathname]);
 
   const pageTitle = useMemo(() => {
-    const match = NAV_ITEMS.find((item) => pathname === item.href || (pathname === '/' && item.href === '/(tabs)'));
+    const match = NAV_ITEMS.find(
+      (item) => pathname === item.href || (pathname === '/' && item.href === '/(tabs)'),
+    );
     return match?.label ?? 'Dashboard';
   }, [pathname]);
 
