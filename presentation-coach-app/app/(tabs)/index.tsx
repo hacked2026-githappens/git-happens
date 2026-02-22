@@ -1970,8 +1970,8 @@ const styles = StyleSheet.create({
     color: '#eaf4ff',
   },
   uploadSection: {
-    width: '88%',
-    maxWidth: 860,
+    width: '60%',
+    maxWidth: 820,
     alignSelf: 'center',
     borderRadius: 20,
     borderWidth: 1,
