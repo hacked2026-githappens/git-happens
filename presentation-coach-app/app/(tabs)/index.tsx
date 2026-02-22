@@ -665,6 +665,19 @@ export default function HomeScreen() {
 
       // Fire-and-forget: save session to Supabase if user is logged in
       if (user) {
+        const nonVerbalMetrics = api.metrics?.non_verbal ?? null;
+        const annotatedVideoMeta =
+          videoUri && mapped.markers?.length
+            ? {
+                source_uri: videoUri,
+                source_name: videoName || null,
+                markers: mapped.markers.map((marker) => ({
+                  time_sec: marker.time_sec,
+                  label: marker.label,
+                  detail: marker.detail ?? null,
+                })),
+              }
+            : null;
         saveSession(user.id, {
           preset,
           duration_s: api.metrics?.duration_seconds ?? null,
@@ -675,7 +688,13 @@ export default function HomeScreen() {
           strengths: api.llm_analysis?.strengths ?? null,
           improvements: api.llm_analysis?.improvements ?? null,
           transcript: api.transcript ?? null,
-          non_verbal: api.metrics?.non_verbal ?? null,
+          non_verbal:
+            nonVerbalMetrics || annotatedVideoMeta
+              ? {
+                  ...(nonVerbalMetrics ?? {}),
+                  annotated_video: annotatedVideoMeta,
+                }
+              : null,
         }).catch(() => {
           // Silent — session saving is best-effort
         });

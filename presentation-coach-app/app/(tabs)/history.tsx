@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -72,6 +73,27 @@ const NON_VERBAL_COLORS = {
 
 // ── Series config ─────────────────────────────────────────────────────────────
 
+type AnnotatedMarker = {
+  time_sec: number;
+  label: string;
+  detail?: string | null;
+};
+
+type AnnotatedVideoMeta = {
+  source_uri: string;
+  source_name?: string | null;
+  markers: AnnotatedMarker[];
+};
+
+function formatSeconds(seconds: number): string {
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const mm = Math.floor(safe / 60);
+  const ss = Math.floor(safe % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
 type Session = {
   id: string;
   created_at: string;
@@ -86,6 +108,34 @@ type Session = {
   transcript: string | null;
   non_verbal: Record<string, any> | null;
 };
+
+function getAnnotatedVideoMeta(session: Session): AnnotatedVideoMeta | null {
+  const raw = session.non_verbal?.annotated_video;
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.source_uri !== 'string' || !raw.source_uri.trim()) return null;
+  if (!Array.isArray(raw.markers) || raw.markers.length === 0) return null;
+
+  const markers = raw.markers
+    .map((marker: any) => {
+      const time = Number(marker?.time_sec);
+      if (!Number.isFinite(time)) return null;
+      return {
+        time_sec: time,
+        label: typeof marker?.label === 'string' ? marker.label : 'moment',
+        detail: typeof marker?.detail === 'string' ? marker.detail : null,
+      };
+    })
+    .filter((marker: AnnotatedMarker | null): marker is AnnotatedMarker => Boolean(marker))
+    .sort((a, b) => a.time_sec - b.time_sec);
+
+  if (!markers.length) return null;
+
+  return {
+    source_uri: raw.source_uri,
+    source_name: typeof raw.source_name === 'string' ? raw.source_name : null,
+    markers,
+  };
+}
 
 type SeriesConfig = {
   key: string;
@@ -502,14 +552,33 @@ function ScoreBar({ label, value, color, isDark }: { label: string; value: numbe
 
 function SessionCard({ session, isDark }: { session: Session; isDark: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const [showAnnotated, setShowAnnotated] = useState(false);
   const presetColor = PRESET_COLORS[session.preset] ?? '#8a7560';
   const scores = session.scores;
+  const annotatedVideo = getAnnotatedVideoMeta(session);
+  const annotatedPlayer = useVideoPlayer(annotatedVideo?.source_uri ?? '', (player) => {
+    player.loop = false;
+  });
+
+  const jumpToTimestamp = useCallback(
+    (seconds: number) => {
+      try {
+        annotatedPlayer.currentTime = Math.max(0, seconds);
+        annotatedPlayer.play();
+      } catch {
+        // no-op: local/expired URLs can fail; keep UI responsive
+      }
+    },
+    [annotatedPlayer],
+  );
 
   return (
-    <Pressable
-      onPress={() => setExpanded((v) => !v)}
-      style={[cardStyles.card, isDark && cardStyles.cardDark]}>
-      <View style={cardStyles.headerRow}>
+    <View style={[cardStyles.card, isDark && cardStyles.cardDark]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} session details`}
+        onPress={() => setExpanded((v) => !v)}
+        style={cardStyles.headerRow}>
         <View>
           <ThemedText style={cardStyles.dateText}>{formatDate(session.created_at)}</ThemedText>
           <ThemedText style={cardStyles.timeText}>{formatTime(session.created_at)}</ThemedText>
@@ -526,7 +595,7 @@ function SessionCard({ session, isDark }: { session: Session; isDark: boolean })
             color={isDark ? '#c7b5a2' : '#8a7560'}
           />
         </View>
-      </View>
+      </Pressable>
 
       {expanded && session.wpm != null && (
         <View style={cardStyles.statRow}>
@@ -576,7 +645,88 @@ function SessionCard({ session, isDark }: { session: Session; isDark: boolean })
           </ThemedText>
         </View>
       )}
-    </Pressable>
+
+      {expanded && annotatedVideo && (
+        <View style={[cardStyles.annotatedPanel, isDark && cardStyles.annotatedPanelDark]}>
+          <View style={cardStyles.annotatedHeaderRow}>
+            <View style={cardStyles.annotatedTitleWrap}>
+              <ThemedText style={cardStyles.annotatedTitle}>Annotated moments</ThemedText>
+              <ThemedText style={cardStyles.annotatedSubtitle}>
+                {annotatedVideo.markers.length} timestamp
+                {annotatedVideo.markers.length === 1 ? '' : 's'}
+              </ThemedText>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showAnnotated ? 'Hide video' : 'Show video'}
+              onPress={() => setShowAnnotated((v) => !v)}
+              style={({ pressed }) => [
+                cardStyles.annotatedToggleBtn,
+                pressed && { opacity: 0.85 },
+              ]}>
+              <Ionicons
+                name={showAnnotated ? 'videocam' : 'videocam-outline'}
+                size={14}
+                color="#fff"
+              />
+              <ThemedText style={cardStyles.annotatedToggleText}>Show Video</ThemedText>
+            </Pressable>
+          </View>
+
+          {showAnnotated && (
+            <>
+              <View style={cardStyles.annotatedVideoWrap}>
+                <VideoView
+                  style={cardStyles.annotatedVideo}
+                  player={annotatedPlayer}
+                  nativeControls
+                  allowsFullscreen
+                  allowsPictureInPicture
+                />
+              </View>
+              {!!annotatedVideo.source_name && (
+                <ThemedText numberOfLines={1} style={cardStyles.annotatedFileName}>
+                  {annotatedVideo.source_name}
+                </ThemedText>
+              )}
+            </>
+          )}
+
+          <View style={cardStyles.annotatedList}>
+            {annotatedVideo.markers.slice(0, 10).map((marker, index) => (
+              <Pressable
+                key={`${marker.time_sec}-${index}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Jump to ${formatSeconds(marker.time_sec)} for ${marker.label}`}
+                onPress={() => {
+                  if (!showAnnotated) setShowAnnotated(true);
+                  jumpToTimestamp(marker.time_sec);
+                }}
+                style={({ pressed }) => [
+                  cardStyles.annotatedRow,
+                  isDark && cardStyles.annotatedRowDark,
+                  pressed && { opacity: 0.86 },
+                ]}>
+                <ThemedText style={cardStyles.annotatedTime}>{formatSeconds(marker.time_sec)}</ThemedText>
+                <View style={cardStyles.annotatedBody}>
+                  <ThemedText style={cardStyles.annotatedLabel}>{marker.label}</ThemedText>
+                  {!!marker.detail && (
+                    <ThemedText numberOfLines={2} style={cardStyles.annotatedDetail}>
+                      {marker.detail}
+                    </ThemedText>
+                  )}
+                </View>
+                <Ionicons
+                  name="play-forward-outline"
+                  size={14}
+                  color={isDark ? '#f2e4d1' : '#8a7560'}
+                />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -893,4 +1043,99 @@ const cardStyles = StyleSheet.create({
   scoreChipLabel: { fontSize: 11, opacity: 0.75 },
   listRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   listText: { flex: 1, fontSize: 13, lineHeight: 19, opacity: 0.9 },
+  annotatedPanel: {
+    marginTop: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(209,101,44,0.22)',
+    backgroundColor: 'rgba(209,101,44,0.06)',
+    borderRadius: 14,
+    padding: 10,
+    gap: 8,
+  },
+  annotatedPanelDark: {
+    borderColor: 'rgba(255, 214, 168, 0.2)',
+    backgroundColor: 'rgba(255, 214, 168, 0.05)',
+  },
+  annotatedHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  annotatedTitleWrap: { flex: 1 },
+  annotatedTitle: {
+    fontFamily: Fonts.rounded,
+    fontSize: 13,
+  },
+  annotatedSubtitle: {
+    fontSize: 11,
+    opacity: 0.65,
+    marginTop: 1,
+  },
+  annotatedToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: palette.accent,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  annotatedToggleText: {
+    color: '#fff',
+    fontFamily: Fonts.rounded,
+    fontSize: 12,
+  },
+  annotatedVideoWrap: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    backgroundColor: '#000',
+  },
+  annotatedVideo: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+  },
+  annotatedFileName: {
+    fontSize: 11,
+    opacity: 0.65,
+  },
+  annotatedList: {
+    gap: 6,
+  },
+  annotatedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(209,101,44,0.14)',
+    backgroundColor: '#fff8ee',
+    padding: 8,
+  },
+  annotatedRowDark: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  annotatedTime: {
+    minWidth: 42,
+    fontFamily: Fonts.rounded,
+    fontSize: 12,
+    color: palette.accentDeep,
+  },
+  annotatedBody: {
+    flex: 1,
+    gap: 2,
+  },
+  annotatedLabel: {
+    fontFamily: Fonts.rounded,
+    fontSize: 12,
+    textTransform: 'capitalize',
+  },
+  annotatedDetail: {
+    fontSize: 12,
+    opacity: 0.75,
+    lineHeight: 17,
+  },
 });
