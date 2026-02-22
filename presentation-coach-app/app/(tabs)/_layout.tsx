@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Slot, usePathname, useRouter } from 'expo-router';
+import { type Href, Slot, usePathname, useRouter } from 'expo-router';
 
 import { AnimatedAuroraBackground } from '@/components/animated-aurora-background';
 import { ThemedText } from '@/components/themed-text';
@@ -9,7 +9,7 @@ import { Fonts } from '@/constants/theme';
 
 type NavItem = {
   label: string;
-  href: string;
+  href: Href;
   icon: keyof typeof Ionicons.glyphMap;
 };
 
@@ -25,7 +25,7 @@ function Sidebar({
   onNavigate,
 }: {
   collapsed: boolean;
-  onNavigate: (href: string) => void;
+  onNavigate: (href: Href) => void;
 }) {
   const pathname = usePathname();
   const currentPath = pathname === '/' ? '/(tabs)' : pathname;
@@ -35,7 +35,7 @@ function Sidebar({
       <View style={styles.sidebarTop}>
         <View style={styles.brandRow}>
           <View style={styles.logoWrap}>
-            <Ionicons name="sparkles-outline" size={16} color="#43d2dc" />
+            <Ionicons name="mic-outline" size={15} color="#53d7dd" />
           </View>
           {!collapsed && (
             <View>
@@ -50,7 +50,7 @@ function Sidebar({
             const active = currentPath === item.href;
             return (
               <Pressable
-                key={item.href}
+                key={item.label}
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${item.label}`}
                 onPress={() => onNavigate(item.href)}
@@ -115,7 +115,7 @@ export default function TabsDashboardLayout() {
     return match?.label ?? 'Dashboard';
   }, [pathname]);
 
-  const go = (href: string) => {
+  const go = (href: Href) => {
     router.push(href);
   };
 

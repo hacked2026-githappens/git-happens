@@ -82,8 +82,8 @@ export default function LandingScreen() {
         </View>
 
         <View style={[styles.hero, { maxWidth: heroMaxWidth }]}>
-          <View style={styles.heroIconBubble}>
-            <Ionicons name="mic-outline" size={20} color="#44d8dd" />
+          <View style={[styles.heroIconBubble, isDesktop && styles.heroIconBubbleDesktop]}>
+            <Ionicons name="mic-outline" size={isDesktop ? 30 : 26} color="#44d8dd" />
           </View>
           <ThemedText style={[styles.heroTitle, isDesktop && styles.heroTitleDesktop]}>
             Speak with{' '}
@@ -227,15 +227,20 @@ const styles = StyleSheet.create({
     lineHeight: 31,
   },
   heroIconBubble: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
+    width: 68,
+    height: 68,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(35, 126, 190, 0.28)',
     borderWidth: 1,
     borderColor: 'rgba(129, 195, 255, 0.35)',
-    marginBottom: 20,
+    marginBottom: 24,
+  },
+  heroIconBubbleDesktop: {
+    width: 78,
+    height: 78,
+    borderRadius: 24,
   },
   heroTitle: {
     color: '#f0f3ff',

@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Fonts } from '@/constants/theme';
@@ -37,20 +36,20 @@ const checklist = [
 
 export default function ExploreScreen() {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#0d1430', dark: '#0d1430' }}
-      headerImage={
-        <LinearGradient colors={['#0f1735', '#1c2251', '#134a54']} style={styles.hero}>
+    <ThemedView style={styles.root} lightColor="#141d3f" darkColor="#141d3f">
+      <View style={styles.backGlowTop} />
+      <View style={styles.backGlowBottom} />
+      <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+        <LinearGradient colors={['#17214b', '#1b2550', '#134a54']} style={styles.hero}>
           <ThemedText style={styles.heroTitle}>Practice Guide</ThemedText>
           <ThemedText style={styles.heroSubtitle}>
             Three focused drills to level up each presentation round.
           </ThemedText>
         </LinearGradient>
-      }>
-      <ThemedView style={styles.page} lightColor="#0f1735" darkColor="#0f1735">
+
         <ThemedView style={styles.card} lightColor="#1b2550" darkColor="#1b2550">
           <View style={styles.sectionHeader}>
-            <Ionicons name="book-outline" size={18} color="#d1652c" />
+            <Ionicons name="book-outline" size={18} color="#39c8cf" />
             <ThemedText style={styles.sectionTitle}>Coaching drills</ThemedText>
           </View>
 
@@ -69,7 +68,7 @@ export default function ExploreScreen() {
 
         <ThemedView style={styles.card} lightColor="#1b2550" darkColor="#1b2550">
           <View style={styles.sectionHeader}>
-            <Ionicons name="clipboard-outline" size={18} color="#17998a" />
+            <Ionicons name="clipboard-outline" size={18} color="#2ac0a8" />
             <ThemedText style={styles.sectionTitle}>Before you hit record</ThemedText>
           </View>
           {checklist.map((item, index) => (
@@ -80,22 +79,55 @@ export default function ExploreScreen() {
           ))}
         </ThemedView>
 
-        <ThemedView style={styles.quoteCard} lightColor="#16234a" darkColor="#16234a">
-          <Ionicons name="mic-outline" size={18} color="#ffcc95" />
+        <ThemedView style={styles.quoteCard} lightColor="#1b2550" darkColor="#1b2550">
+          <Ionicons name="mic-outline" size={18} color="#9ee7ef" />
           <ThemedText style={styles.quoteText}>
             Better speaking is built in loops: record, review, refine, repeat.
           </ThemedText>
         </ThemedView>
-      </ThemedView>
-    </ParallaxScrollView>
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
+  root: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#141d3f',
+  },
+  backGlowTop: {
+    position: 'absolute',
+    top: -140,
+    left: -120,
+    width: 360,
+    height: 360,
+    borderRadius: 999,
+    backgroundColor: 'rgba(39, 103, 211, 0.12)',
+  },
+  backGlowBottom: {
+    position: 'absolute',
+    right: -150,
+    bottom: -220,
+    width: 460,
+    height: 460,
+    borderRadius: 999,
+    backgroundColor: 'rgba(42, 192, 168, 0.14)',
+  },
+  page: {
+    width: '100%',
+    maxWidth: 1040,
+    alignSelf: 'center',
     paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  hero: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 143, 208, 0.36)',
+    paddingHorizontal: 22,
+    paddingVertical: 20,
     gap: 8,
   },
   heroTitle: {
@@ -106,28 +138,20 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     color: 'rgba(209, 224, 247, 0.92)',
-    maxWidth: 520,
+    maxWidth: 620,
     fontSize: 15,
     lineHeight: 22,
-  },
-  page: {
-    width: '100%',
-    maxWidth: 900,
-    alignSelf: 'center',
-    paddingHorizontal: 18,
-    paddingBottom: 28,
-    gap: 14,
   },
   card: {
     borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(108, 143, 208, 0.36)',
-    padding: 16,
+    padding: 18,
     gap: 12,
     ...Platform.select({
       ios: {
-        shadowColor: '#2f2219',
-        shadowOpacity: 0.15,
+        shadowColor: '#101a38',
+        shadowOpacity: 0.2,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 6 },
       },
@@ -143,6 +167,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: Fonts.rounded,
     fontSize: 20,
+    color: '#e8f4ff',
   },
   row: {
     flexDirection: 'row',
@@ -166,10 +191,12 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.rounded,
     fontSize: 15,
     lineHeight: 18,
+    color: '#e8f4ff',
   },
   rowDetail: {
     lineHeight: 21,
     fontSize: 14,
+    color: '#b8cce7',
   },
   checkRow: {
     flexDirection: 'row',
@@ -192,6 +219,7 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 21,
     fontSize: 14,
+    color: '#b8cce7',
   },
   quoteCard: {
     borderRadius: 18,
@@ -207,3 +235,4 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
+
