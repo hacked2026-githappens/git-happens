@@ -555,6 +555,13 @@ export default function HomeScreen() {
 
       // Fire-and-forget: save session to Supabase if user is logged in
       if (user) {
+        const annotations =
+          (api.markers ?? []).map((m: any) => ({
+            time: Number(m.second ?? 0),
+            label: String(m.category ?? 'note'),
+            message: String(m.message ?? ''),
+          })) ?? [];
+
         saveSession(user.id, {
           preset,
           duration_s: api.metrics?.duration_seconds ?? null,
@@ -566,6 +573,10 @@ export default function HomeScreen() {
           improvements: api.llm_analysis?.improvements ?? null,
           transcript: api.transcript ?? null,
           non_verbal: api.metrics?.non_verbal ?? null,
+
+          // ✅ NEW
+          video_uri: videoUri,
+          annotations,
         }).catch(() => {
           // Silent — session saving is best-effort
         });
