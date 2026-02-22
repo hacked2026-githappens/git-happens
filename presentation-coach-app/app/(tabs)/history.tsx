@@ -85,6 +85,29 @@ type AnnotatedVideoMeta = {
   markers: AnnotatedMarker[];
 };
 
+type AnalysisSnapshot = {
+  summary?: string | null;
+  summary_feedback?: string[] | null;
+  bullets?: string[] | null;
+  markers?: AnnotatedMarker[] | null;
+  notes?: string[] | null;
+  transcript?: string | null;
+  personalized_content_plan?: {
+    topic_summary?: string | null;
+    audience_takeaway?: string | null;
+    improvements?: Array<{
+      title?: string | null;
+      content_issue?: string | null;
+      specific_fix?: string | null;
+      example_revision?: string | null;
+    }> | null;
+  } | null;
+  source_video?: {
+    uri?: string | null;
+    name?: string | null;
+  } | null;
+};
+
 function formatSeconds(seconds: number): string {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   const mm = Math.floor(safe / 60);
@@ -111,11 +134,22 @@ type Session = {
 
 function getAnnotatedVideoMeta(session: Session): AnnotatedVideoMeta | null {
   const raw = session.non_verbal?.annotated_video;
-  if (!raw || typeof raw !== 'object') return null;
-  if (typeof raw.source_uri !== 'string' || !raw.source_uri.trim()) return null;
-  if (!Array.isArray(raw.markers) || raw.markers.length === 0) return null;
+  const snapshot = getAnalysisSnapshot(session);
+  const sourceUri =
+    typeof raw?.source_uri === 'string' && raw.source_uri.trim()
+      ? raw.source_uri
+      : typeof snapshot?.source_video?.uri === 'string' && snapshot.source_video.uri.trim()
+      ? snapshot.source_video.uri
+      : null;
+  const rawMarkers = Array.isArray(raw?.markers)
+    ? raw.markers
+    : Array.isArray(snapshot?.markers)
+    ? snapshot?.markers
+    : null;
+  if (!sourceUri) return null;
+  if (!Array.isArray(rawMarkers) || rawMarkers.length === 0) return null;
 
-  const markers = raw.markers
+  const markers = rawMarkers
     .map((marker: any) => {
       const time = Number(marker?.time_sec);
       if (!Number.isFinite(time)) return null;
@@ -131,10 +165,21 @@ function getAnnotatedVideoMeta(session: Session): AnnotatedVideoMeta | null {
   if (!markers.length) return null;
 
   return {
-    source_uri: raw.source_uri,
-    source_name: typeof raw.source_name === 'string' ? raw.source_name : null,
+    source_uri: sourceUri,
+    source_name:
+      typeof raw?.source_name === 'string'
+        ? raw.source_name
+        : typeof snapshot?.source_video?.name === 'string'
+        ? snapshot.source_video.name
+        : null,
     markers,
   };
+}
+
+function getAnalysisSnapshot(session: Session): AnalysisSnapshot | null {
+  const raw = session.non_verbal?.analysis_snapshot;
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as AnalysisSnapshot;
 }
 
 type SeriesConfig = {
@@ -553,8 +598,10 @@ function ScoreBar({ label, value, color, isDark }: { label: string; value: numbe
 function SessionCard({ session, isDark }: { session: Session; isDark: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [showAnnotated, setShowAnnotated] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
   const presetColor = PRESET_COLORS[session.preset] ?? '#8a7560';
   const scores = session.scores;
+  const analysisSnapshot = getAnalysisSnapshot(session);
   const annotatedVideo = getAnnotatedVideoMeta(session);
   const annotatedPlayer = useVideoPlayer(annotatedVideo?.source_uri ?? '', (player) => {
     player.loop = false;
@@ -643,6 +690,101 @@ function SessionCard({ session, isDark }: { session: Session; isDark: boolean })
           <ThemedText style={cardStyles.listText} numberOfLines={2}>
             {session.improvements[0].title}: {session.improvements[0].detail}
           </ThemedText>
+        </View>
+      )}
+
+      {expanded && analysisSnapshot && (
+        <View style={[cardStyles.snapshotPanel, isDark && cardStyles.snapshotPanelDark]}>
+          {!!analysisSnapshot.summary && (
+            <View style={cardStyles.snapshotSection}>
+              <ThemedText style={cardStyles.snapshotTitle}>Coach Summary</ThemedText>
+              <ThemedText style={cardStyles.snapshotText}>{analysisSnapshot.summary}</ThemedText>
+            </View>
+          )}
+
+          {!!analysisSnapshot.bullets?.length && (
+            <View style={cardStyles.snapshotSection}>
+              <ThemedText style={cardStyles.snapshotTitle}>Key Feedback</ThemedText>
+              {analysisSnapshot.bullets.slice(0, 4).map((bullet, index) => (
+                <View key={`${index}-${bullet}`} style={cardStyles.snapshotBulletRow}>
+                  <View style={cardStyles.snapshotBulletDot} />
+                  <ThemedText style={cardStyles.snapshotBulletText}>{bullet}</ThemedText>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {!!analysisSnapshot.notes?.length && (
+            <View style={cardStyles.snapshotSection}>
+              <ThemedText style={cardStyles.snapshotTitle}>Analysis Notes</ThemedText>
+              {analysisSnapshot.notes.slice(0, 3).map((note, index) => (
+                <ThemedText key={`${index}-${note}`} style={cardStyles.snapshotNoteText}>
+                  {note}
+                </ThemedText>
+              ))}
+            </View>
+          )}
+
+          {!!analysisSnapshot.personalized_content_plan && (
+            <View style={cardStyles.snapshotSection}>
+              <ThemedText style={cardStyles.snapshotTitle}>Content Plan</ThemedText>
+              {!!analysisSnapshot.personalized_content_plan.topic_summary && (
+                <ThemedText style={cardStyles.snapshotText}>
+                  Topic: {analysisSnapshot.personalized_content_plan.topic_summary}
+                </ThemedText>
+              )}
+              {!!analysisSnapshot.personalized_content_plan.audience_takeaway && (
+                <ThemedText style={cardStyles.snapshotText}>
+                  Takeaway: {analysisSnapshot.personalized_content_plan.audience_takeaway}
+                </ThemedText>
+              )}
+              {!!analysisSnapshot.personalized_content_plan.improvements?.length && (
+                <View style={cardStyles.snapshotPlanList}>
+                  {analysisSnapshot.personalized_content_plan.improvements
+                    .slice(0, 2)
+                    .map((item, index) => (
+                      <View key={`${index}-${item.title ?? 'plan'}`} style={cardStyles.snapshotPlanCard}>
+                        {!!item.title && (
+                          <ThemedText style={cardStyles.snapshotPlanTitle}>{item.title}</ThemedText>
+                        )}
+                        {!!item.content_issue && (
+                          <ThemedText style={cardStyles.snapshotPlanText}>
+                            {item.content_issue}
+                          </ThemedText>
+                        )}
+                        {!!item.specific_fix && (
+                          <ThemedText style={cardStyles.snapshotPlanText}>
+                            Fix: {item.specific_fix}
+                          </ThemedText>
+                        )}
+                      </View>
+                    ))}
+                </View>
+              )}
+            </View>
+          )}
+
+          {!!analysisSnapshot.transcript && (
+            <View style={cardStyles.snapshotSection}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={showTranscript ? 'Hide transcript preview' : 'Show transcript preview'}
+                onPress={() => setShowTranscript((v) => !v)}
+                style={cardStyles.snapshotTranscriptToggle}>
+                <ThemedText style={cardStyles.snapshotTitle}>Transcript</ThemedText>
+                <Ionicons
+                  name={showTranscript ? 'chevron-up-outline' : 'chevron-down-outline'}
+                  size={16}
+                  color={palette.accentDeep}
+                />
+              </Pressable>
+              {showTranscript && (
+                <ThemedText style={cardStyles.snapshotTranscriptText}>
+                  {analysisSnapshot.transcript}
+                </ThemedText>
+              )}
+            </View>
+          )}
         </View>
       )}
 
@@ -1043,6 +1185,86 @@ const cardStyles = StyleSheet.create({
   scoreChipLabel: { fontSize: 11, opacity: 0.75 },
   listRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   listText: { flex: 1, fontSize: 13, lineHeight: 19, opacity: 0.9 },
+  snapshotPanel: {
+    borderWidth: 1,
+    borderColor: 'rgba(23,153,138,0.2)',
+    backgroundColor: 'rgba(23,153,138,0.05)',
+    borderRadius: 14,
+    padding: 10,
+    gap: 10,
+  },
+  snapshotPanelDark: {
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  snapshotSection: {
+    gap: 6,
+  },
+  snapshotTitle: {
+    fontFamily: Fonts.rounded,
+    fontSize: 12,
+    color: palette.accentDeep,
+  },
+  snapshotText: {
+    fontSize: 12,
+    lineHeight: 18,
+    opacity: 0.9,
+  },
+  snapshotBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  snapshotBulletDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: palette.mint,
+    marginTop: 6,
+  },
+  snapshotBulletText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    opacity: 0.9,
+  },
+  snapshotNoteText: {
+    fontSize: 11,
+    opacity: 0.72,
+    lineHeight: 17,
+  },
+  snapshotPlanList: {
+    gap: 6,
+    marginTop: 2,
+  },
+  snapshotPlanCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(209,101,44,0.15)',
+    borderRadius: 10,
+    padding: 8,
+    gap: 3,
+    backgroundColor: 'rgba(209,101,44,0.04)',
+  },
+  snapshotPlanTitle: {
+    fontFamily: Fonts.rounded,
+    fontSize: 12,
+  },
+  snapshotPlanText: {
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.85,
+  },
+  snapshotTranscriptToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  snapshotTranscriptText: {
+    fontSize: 12,
+    lineHeight: 18,
+    opacity: 0.85,
+  },
   annotatedPanel: {
     marginTop: 2,
     borderWidth: 1,
