@@ -69,7 +69,7 @@ def bootstrap_ffmpeg_path() -> None:
 bootstrap_ffmpeg_path()
 
 app = FastAPI(
-    title="Presentation Coach API",
+    title="SpeakSmart API",
     version="0.1.0",
     description="Analyze recorded speaking sessions and return coaching feedback.",
 )
@@ -150,7 +150,7 @@ class FollowUpAnswerEvalResponse(BaseModel):
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    return {"message": "Presentation Coach API is running."}
+    return {"message": "SpeakSmart API is running."}
 
 
 @app.get("/health")
